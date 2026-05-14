@@ -1,17 +1,12 @@
 import argparse
-import os
+import logging
 import sys
 
 from src import config
-from src.video_engine import setup_directories
+from src.image_cleaner import clean_image
+from src.image_stitcher import stitch_images
+from src.video_engine import download_video, extract_frames, setup_directories
 
-try:
-    from src.video_engine import download_video, extract_frames
-    from src.image_stitcher import stitch_images
-    from src.image_cleaner import clean_image
-    from src.omr_wrapper import process_omr
-except ImportError as e:
-    print(f"Note: Some modules are not yet implemented. Details: {e}\n")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -27,7 +22,7 @@ def main():
     parser.add_argument(
         "--output", "-o",
         type=str, 
-        default="data/output/final_sheet.pdf", 
+        default=f"{config.OUTPUT_DIR}/final_sheet", 
         help="Path and filename to save the final output (default: data/output/final_sheet.pdf)."
     )
 
@@ -53,6 +48,20 @@ def main():
     )
 
     parser.add_argument(
+        "--vertical-margin", "-m",
+        type=int,
+        default=config.MARGIN_HEIGHT,
+        help=f"Height of the vertical margin between systems in pixels (default: {config.MARGIN_HEIGHT})."
+    )
+
+    parser.add_argument(
+        "--vertical-bottom-crop", "-bc",
+        type=int,
+        default=config.BOTTOM_CROP,
+        help=f"Number of pixels to crop from the BOTTOM of each frame (default: {config.BOTTOM_CROP})."
+    )
+
+    parser.add_argument(
         "phases",
         nargs="*",
         choices=["download", "stitch", "clean", "omr"],
@@ -64,32 +73,45 @@ def main():
     output_path = args.output
     skip_frames = args.skip_frames
     ssim_threshold = args.ssim_threshold
+    margin_height = args.vertical_margin
+    bottom_crop = args.vertical_bottom_crop
     frames_dir = args.frames_dir
+    stitched_image_path = frames_dir + "/stitched_sheet.jpg"
     phases = args.phases
 
-    print(f"Starting extraction process for: {youtube_url}")
+    logging.info(f"Starting extraction process for: {youtube_url}")
 
     try:
         if not phases or "download" in phases:
             # Phase 1: Video Acquisition & Frame Extraction
-            print("\n[1/4] Downloading video & extracting unique frames...")
+            logging.debug("[1/4] Downloading video & extracting unique frames...")
             setup_directories(frames_dir)
             video_path = download_video(youtube_url, output_dir=config.INPUT_VIDEOS_DIR)
             frames_dir = extract_frames(video_path, output_dir=frames_dir, skip_rate=skip_frames, ssim_threshold=ssim_threshold)
         
         if not phases or "stitch" in phases:
             # Phase 2: Image Stitching
-            print("[2/4] Stitching frames into a continuous panorama...")
-            stitched_image_path = stitch_images(frames_dir, output_dir=config.OUTPUT_DIR, method=config.STITCHING_METHOD, margin_height=config.MARGIN_HEIGHT)
+            logging.info("[2/4] Stitching frames into a continuous panorama...")
+            stitch_images(frames_dir, output_file_path=stitched_image_path, method=config.STITCHING_METHOD, margin_height=margin_height, bottom_crop=bottom_crop)
         
         if not phases or "clean" in phases:
-            # Phase 3: Image Cleanup (Binarization & Deskewing)
-            print("[3/4] Cleaning and deskewing the stitched image...")
-            # cleaned_image_path = clean_image(stitched_image_path, output_dir=config.OUTPUT_DIR)
+            # Phase 3: Image Cleanup (Binarization)
+            logging.info("[3/4] Cleaning the stitched image...")
+            setup_directories(output_path.rsplit('/', 1)[0])
+            clean_image(stitched_image_path, output_file_path=output_path)
+
+        print(f"\n✅ Success! Final output saved to: {output_path}")
 
     except Exception as e:
-        print(f"\nAn error occurred during processing: {e}")
+        logging.error(f"An error occurred during processing: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        filename='data/main_log.log',
+        filemode='w',
+        level=logging.DEBUG,
+        format='%(asctime)s | %(levelname)s | %(message)s',
+        datefmt='%H:%M:%S'
+    )
     main()

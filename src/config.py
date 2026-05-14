@@ -20,4 +20,5 @@ FRAME_SKIP_RATE = 5
 
 # Image stitching parameters
 STITCHING_METHOD = "system_hard_cut"  # Options: "system_hard_cut"
-MARGIN_HEIGHT = 80  # Height of the white margin between systems in pixels
+MARGIN_HEIGHT = 0  # Height of the white margin between systems in pixels
+BOTTOM_CROP = 0  # Number of pixels to crop from the bottom of each frame

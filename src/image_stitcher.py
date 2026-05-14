@@ -1,69 +1,110 @@
+import logging
 import cv2
 import numpy as np
 import os
 import glob
-
+from tqdm import tqdm
 from src import config
 
-def stitch_images(frames_dir, output_dir, method="system_hard_cut", margin_height=80):
+def stitch_images(frames_dir, output_file_path, method="system_hard_cut", margin_height=80, bottom_crop=0):
     """Stitches the extracted frames together into a single continuous image.
 
     Args:
         frames_dir (_type_): The directory containing the extracted frames to be stitched.
-        output_dir (_type_): The directory where the final stitched image will be saved.
+        output_file_path (_type_): The file path where the final stitched image will be saved.
         method (_type_): The method to use for stitching (default: "system_hard_cut").
         margin_height (_type_): The height of the margin to be added between systems.
+        bottom_crop (_type_): The number of pixels to crop from the bottom of each frame.
     """
-            
-    frame_files = sorted(glob.glob(os.path.join(frames_dir, "*.jpg")), 
-                         key=lambda x: int(os.path.basename(x).split('_')[1].split('.')[0]))
+    all_files = glob.glob(os.path.join(frames_dir, "*.jpg"))
+    valid_files = []
+    for f in all_files:
+        if extract_frame_number(f) is not None:
+            valid_files.append(f)
+        else:
+            logging.warning(f"Skipping badly formatted file: {os.path.basename(f)}")
 
-    if not frame_files:
-        print("Error: No frames found to stitch.")
+    if not valid_files:
+        logging.error("No valid frame files found to stitch.")
         return None
     
+    frame_files = sorted(valid_files, key=extract_frame_number)
+    
     if method == "system_hard_cut":
-        final_page = stitch_system_hard_cut(frame_files, margin_height=margin_height)
+        final_page = stitch_system_hard_cut(frame_files, margin_height=margin_height, bottom_crop=bottom_crop)
     else:
         raise ValueError(f"Unknown stitching method: {method}")
     
-    final_output_path = os.path.join(output_dir, "final_sheet.jpg")
-    cv2.imwrite(final_output_path, final_page)
-    print(f"Saved to: {final_output_path}")
+    cv2.imwrite(output_file_path, final_page)
+    logging.info(f"Saved to: {output_file_path}")
 
-def stitch_system_hard_cut(frame_files, margin_height=80):
-    """Stitches images together using a simple hard cut approach, stacking them vertically with a white margin in between.
-    Args:
-        frame_files (_type_): A list of file paths to the frames to be stitched.
-        margin_height (_type_): The height of the margin to be added between systems.
+def stitch_system_hard_cut(frame_files, margin_height=80, bottom_crop=0):
     """
+    Stitches images together vertically.
+    - margin_height > 0: Adds white space between frames.
+    - margin_height < 0: Crops pixels from the TOP of the incoming frame.
+    - bottom_crop > 0: Crops pixels from the BOTTOM of every frame.
+    """
+    if not frame_files:
+        logging.error("No frames provided to stitch.")
+        return None
 
     lines_to_stack = []
     
-    sample_frame = cv2.imread(frame_files[0])
-    _, w, c = sample_frame.shape
+    first_frame = cv2.imread(frame_files[0])
     
-    white_margin = np.ones((margin_height, w, c), dtype=np.uint8) * 255
+    # Apply bottom crop to the first frame
+    if bottom_crop > 0:
+        if bottom_crop < first_frame.shape[0]:
+            first_frame = first_frame[:-bottom_crop, :] 
+        else:
+            logging.warning("Bottom crop is larger than the first frame's height!")
+            
+    lines_to_stack.append(first_frame)
+    
+    # Pre-calculate the white margin (using the width of the first frame)
+    _, w, c = first_frame.shape
+    if margin_height > 0:
+        white_margin = np.ones((margin_height, w, c), dtype=np.uint8) * 255
 
-    for i, file_path in enumerate(frame_files):
-        print(f"Adding line {i+1}...")
-        frame = cv2.imread(file_path)
-        lines_to_stack.append(frame)
-        lines_to_stack.append(white_margin)
+    for i in tqdm(range(1, len(frame_files)), desc="Stitching frames"):
+        logging.debug(f"Adding line {i+1}...")
+        frame = cv2.imread(frame_files[i])
+        
+        if bottom_crop > 0:
+            if bottom_crop < frame.shape[0]:
+                # Slice off the last 'bottom_crop' rows
+                frame = frame[:-bottom_crop, :]
+            else:
+                logging.warning(f"Frame {i+1} is too short to bottom-crop {bottom_crop} pixels!")
 
+        if margin_height > 0:
+            lines_to_stack.append(white_margin)
+            lines_to_stack.append(frame)
+            
+        elif margin_height < 0:
+            top_crop_amount = abs(margin_height)
+            if top_crop_amount < frame.shape[0]:
+                # Slice off the first 'top_crop_amount' rows
+                frame = frame[top_crop_amount:, :] 
+            else:
+                logging.warning(f"Frame {i+1} is too short to top-crop {top_crop_amount} pixels!")
+            lines_to_stack.append(frame)
+            
+        else:
+            lines_to_stack.append(frame)
+
+    # Stack everything top-to-bottom
     final_page = np.vstack(lines_to_stack)
-    print(f"Success! Assembled {len(frame_files)} lines into a single page.")
+    logging.info(f"Success! Assembled {len(frame_files)} lines into a single page.")
+    
     return final_page
 
-def setup_directories():
-    """Sets up the necessary directories for the video processing pipeline."""
-
-    os.makedirs(config.OUTPUT_DIR, exist_ok=True)
-    # Clear the output directory
-    for filename in os.listdir(config.OUTPUT_DIR):
-        file_path = os.path.join(config.OUTPUT_DIR, filename)
-        try:
-            if os.path.isfile(file_path):
-                os.unlink(file_path)
-        except Exception as e:
-            print(f"Error while clearing output directory: {e}")
+def extract_frame_number(filepath):
+    """Safely attempts to extract the integer from a 'frame_X.jpg' filename."""
+    filename = os.path.basename(filepath)
+    try:
+        num_str = filename.split('_')[1].split('.')[0]
+        return int(num_str)
+    except (IndexError, ValueError):
+        return None
