@@ -7,6 +7,36 @@ from src import config
 import os
 from tqdm import tqdm
 
+class TqdmForYtDlp:
+    """A wrapper class to manage the tqdm progress bar state for yt-dlp."""
+    def __init__(self):
+        self.pbar = None
+
+    def hook(self, d):
+        if d['status'] == 'downloading':
+            if self.pbar is None:
+                # Try to get the exact file size, fallback to an estimate
+                total_bytes = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
+                
+                self.pbar = tqdm(
+                    total=total_bytes, 
+                    unit='B',
+                    unit_scale=True,
+                    unit_divisor=1024,
+                    desc="Downloading Video",
+                    dynamic_ncols=True
+                )
+            
+            downloaded_bytes = d.get('downloaded_bytes', 0)
+            self.pbar.n = downloaded_bytes
+            self.pbar.refresh()
+
+        elif d['status'] == 'finished':
+            # Clean up and close the bar when done
+            if self.pbar:
+                self.pbar.n = self.pbar.total # Snap to 100%
+                self.pbar.refresh()
+                self.pbar.close()
 
 def download_video(video_url, output_dir):
     """Downloads a YouTube video using yt-dlp and saves it to the specified output directory.
@@ -15,12 +45,15 @@ def download_video(video_url, output_dir):
         video_url (_type_): The URL of the YouTube video to download.
         output_dir (_type_): The directory where the downloaded video will be saved.
     """
+
+    ytdl_logger = logging.getLogger("yt_dlp")
+    ytdl_logger.setLevel(logging.WARNING)
+
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]',
         'outtmpl': f'{output_dir}/%(title)s.%(ext)s',
-        'quiet': True,
-        'noprogress': True,
-        'logger': logging.getLogger(),
+        'logger': ytdl_logger,
+        'progress_hooks': [TqdmForYtDlp().hook]
     }
     with YoutubeDL(ydl_opts) as ydl:
         ydl.download([video_url])
@@ -61,7 +94,7 @@ def extract_frames(video_path, output_dir, skip_rate, ssim_threshold):
     prev_frame = prev_frame[y:y+h, x:x+w]
 
     prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
-    cv2.imwrite(f"{output_dir}/frame_1.jpg", prev_frame)
+    cv2.imwrite(f"{output_dir}/frame_1.png", prev_frame)
     
     saved_frame_count = 1
     frame_count = 1
@@ -90,7 +123,7 @@ def extract_frames(video_path, output_dir, skip_rate, ssim_threshold):
             ssim_const = ssim(prev_gray, curr_gray, data_range=255)
             if ssim_const < ssim_threshold:
                 saved_frame_count += 1
-                cv2.imwrite(f"{output_dir}/frame_{saved_frame_count}.jpg", curr_gray)
+                cv2.imwrite(f"{output_dir}/frame_{saved_frame_count}.png", curr_gray)
                 logging.debug(f"Saved frame {saved_frame_count} (SSIM: {ssim_const:.4f})")
                 prev_gray = curr_gray
 
@@ -146,28 +179,3 @@ def prompt_sheet_roi(frame):
     cv2.destroyAllWindows()
     
     return r
-
-def setup_directories(frames_dir):
-    """Sets up the necessary directories for the video processing pipeline."""
-
-    # Create necessary directories if they don't exist
-    os.makedirs(config.INPUT_VIDEOS_DIR, exist_ok=True)
-    os.makedirs(frames_dir, exist_ok=True)
-
-    # Clear the output and temporary directories
-    for filename in os.listdir(config.INPUT_VIDEOS_DIR):
-        file_path = os.path.join(config.INPUT_VIDEOS_DIR, filename)
-        try:
-            if os.path.isfile(file_path):
-                os.unlink(file_path)
-        except Exception as e:
-            logging.error(f"Error while clearing input videos directory: {e}")
-
-
-    for filename in os.listdir(frames_dir):
-        file_path = os.path.join(frames_dir, filename)
-        try:
-            if os.path.isfile(file_path):
-                os.unlink(file_path)
-        except Exception as e:
-            logging.error(f"Error while clearing temporary frames directory: {e}")

@@ -1,24 +1,32 @@
-import os
+from pathlib import Path
+from dataclasses import dataclass
 
+@dataclass(frozen=True)
+class PathConfig:
+    BASE_DIR: Path = Path(__file__).resolve().parent.parent
+    DATA_DIR: Path = BASE_DIR / "data"
+    INPUT_VIDEOS: Path = DATA_DIR / "input_video"
+    TEMP_FRAMES: Path = DATA_DIR / "temp_frames"
+    OUTPUT: Path = DATA_DIR / "output"
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+@dataclass(frozen=True)
+class VideoConfig:
+    SSIM_THRESHOLD: float = 0.88
+    FRAME_SKIP_RATE: int = 5
 
-# Define the main data folders
-DATA_DIR = os.path.join(BASE_DIR, "data")
-INPUT_VIDEOS_DIR = os.path.join(DATA_DIR, "input_videos")
-TEMP_FRAMES_DIR = os.path.join(DATA_DIR, "temp_frames")
-OUTPUT_DIR = os.path.join(DATA_DIR, "output")
+@dataclass(frozen=True)
+class StitchConfig:
+    METHOD: str = "system_hard_cut"
+    SYSTEM_SPACING: int = 80
 
+@dataclass(frozen=True)
+class CleanConfig:
+    BLOCK_SIZE: int = 21
+    CONSTANT_C: int = 8
+    PDF_TOP_MARGIN_PX: int = 80
 
-# Structural Similarity Index (SSIM) threshold.
-# 1.0 = identical. 0.85 to 0.90 is usually ideal
-SSIM_THRESHOLD = 0.88
-
-# Check every Nth frame to speed up processing.
-FRAME_SKIP_RATE = 5
-
-
-# Image stitching parameters
-STITCHING_METHOD = "system_hard_cut"  # Options: "system_hard_cut"
-MARGIN_HEIGHT = 0  # Height of the white margin between systems in pixels
-BOTTOM_CROP = 0  # Number of pixels to crop from the bottom of each frame
+class Config:
+    paths = PathConfig()
+    video = VideoConfig()
+    stitch = StitchConfig()
+    clean = CleanConfig()
