@@ -97,6 +97,7 @@ def reset(input_videos_dir, frames_dir, output_dir):
             os.makedirs(dir_path)
 
 if __name__ == "__main__":
+    os.makedirs("data", exist_ok=True)
     logging.basicConfig(
         filename='data/main_log.log',
         filemode='w',
