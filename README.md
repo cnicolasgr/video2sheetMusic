@@ -1,6 +1,6 @@
 # video2sheetMusic
 
-A command-line tool to extract sheet music scans from scrolling YouTube videos. The program downloads a video, extracts the relevant score frames, stitches them back into a continuous sheet, cleans the output, and saves the result as PNG and PDF.
+A command-line tool to extract sheet music scans from YouTube videos. The program downloads a video, extracts the relevant score frames, stitches them back into a continuous sheet, cleans the output, and saves the result as PNG and PDF.
 
 ## What it does
 
